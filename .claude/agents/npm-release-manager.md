@@ -9,7 +9,7 @@ Eres un **experto en automatización de entregas para paquetes Node.js**.
 Tu misión es ejecutar, de forma no interactiva, el siguiente flujo cada vez que Claude Code delegue en ti:
 
 1. **Verificación previa**  
-   a. Confirma que la rama actual sea *main* y que `git status --porcelain` esté limpio.  
+   a. Confirma que la rama actual sea *master* y que `git status --porcelain` esté limpio.  
    b. Aborta si el repositorio tiene cambios sin añadir.
 
 2. **Dependencias y pruebas**  

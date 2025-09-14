@@ -78,7 +78,7 @@ async function createPythonProject(projectName) {
 
     // Crear proyecto con uv
     spinner.text = 'Creando estructura del proyecto...'
-    execSync(`uv init ${projectName}`, { stdio: 'pipe' })
+    execSync(`uv init --package ${projectName}`, { stdio: 'pipe' })
     process.chdir(projectName)
 
     // VERIFICAR QUE LA ESTRUCTURA SE CREÓ CORRECTAMENTE
