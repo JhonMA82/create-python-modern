@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-const { program } = require('commander')
-const chalk = require('chalk')
-const ora = require('ora')
-const inquirer = require('inquirer')
-const { execSync } = require('child_process')
-const fs = require('fs')
-const path = require('path')
+import chalk from 'chalk'
+import { execSync } from 'child_process'
+import { program } from 'commander'
+import * as fs from 'fs'
+import inquirer from 'inquirer'
+import ora from 'ora'
+import * as path from 'path'
 
 program
   .name('create-python-modern')
@@ -54,11 +54,19 @@ async function createPythonProject(projectName) {
       // Detectar SO y instalar uv
       const platform = process.platform
       if (platform === 'win32') {
-        execSync('powershell -c "irm https://astral.sh/uv/install.ps1 | iex"', { stdio: 'inherit' })
+        execSync('powershell -c "irm https://astral.sh/uv/install.ps1 | iex"', { stdio: 'inherit', shell: true })
       } else {
-        execSync('curl -LsSf https://astral.sh/uv/install.sh | sh', { stdio: 'inherit' })
+        execSync('curl -LsSf https://astral.sh/uv/install.sh | sh', { stdio: 'inherit', shell: true })
       }
-      spinner.succeed('uv instalado correctamente')
+
+      // Verificar instalación después de instalar
+      try {
+        execSync('uv --version', { stdio: 'pipe' })
+        spinner.succeed('uv instalado correctamente')
+      } catch (installError) {
+        spinner.fail('Fallo en la verificación de uv después de la instalación')
+        throw new Error('Por favor, instala uv manualmente desde https://astral.sh/uv')
+      }
     }
 
     // Check if project directory already exists
@@ -69,12 +77,13 @@ async function createPythonProject(projectName) {
     }
 
     // Crear proyecto con uv
-    spinner.start('Creando estructura del proyecto...')
-    execSync(`uv init --package ${projectName}`, { stdio: 'pipe' })
+    spinner.text = 'Creando estructura del proyecto...'
+    execSync(`uv init ${projectName}`, { stdio: 'pipe' })
     process.chdir(projectName)
 
     // VERIFICAR QUE LA ESTRUCTURA SE CREÓ CORRECTAMENTE
-    const requiredDirs = ['src', `src/${projectName.replace(/-/g, '_')}`]
+    const snakeCaseName = projectName.replace(/-/g, '_')
+    const requiredDirs = ['src', `src/${snakeCaseName}`]
     for (const dir of requiredDirs) {
       if (!fs.existsSync(dir)) {
         throw new Error(`El directorio requerido ${dir} no fue creado por uv init`)
@@ -84,19 +93,19 @@ async function createPythonProject(projectName) {
     spinner.succeed('Estructura del proyecto creada')
 
     // Agregar configuración moderna
-    spinner.start('Agregando configuración moderna...')
+    spinner.text = 'Agregando configuración moderna...'
     await addModernConfig(projectName)
     spinner.succeed('Configuración moderna agregada')
 
     // Crear archivos de código
-    spinner.start('Creando archivos de código...')
+    spinner.text = 'Creando archivos de código...'
     await createCodeFiles(projectName)
     spinner.succeed('Archivos de código creados')
 
     // Verificar que los archivos se crearon correctamente
     const requiredFiles = [
-      `src/${projectName.replace(/-/g, '_')}/main.py`,
-      `src/${projectName.replace(/-/g, '_')}/py.typed`,
+      `src/${snakeCaseName}/main.py`,
+      `src/${snakeCaseName}/py.typed`,
       'tests/test_main.py',
       '.claude.md',
     ]
@@ -108,13 +117,19 @@ async function createPythonProject(projectName) {
     }
 
     // Instalar dependencias
-    spinner.start('Instalando dependencias...')
-    execSync('uv add --dev ruff mypy pytest pytest-cov pytest-asyncio pre-commit bandit structlog pydantic', {
+    spinner.text = 'Instalando dependencias de runtime...'
+    execSync('uv add structlog pydantic', {
+      stdio: 'pipe',
+    })
+
+    spinner.text = 'Instalando dependencias de desarrollo...'
+    execSync('uv add --dev ruff mypy pytest pytest-cov pytest-asyncio pre-commit bandit', {
       stdio: 'pipe',
     })
     spinner.succeed('Dependencias instaladas')
+
     // Configurar pre-commit
-    spinner.start('Configurando hooks de pre-commit...')
+    spinner.text = 'Configurando hooks de pre-commit...'
     try {
       execSync('uv run pre-commit install', { stdio: 'pipe' })
       spinner.succeed('Hooks de pre-commit configurados')
@@ -131,7 +146,7 @@ async function createPythonProject(projectName) {
     console.log(chalk.white(`├── .claude.md              # Rules for Claude Code`))
     console.log(chalk.white(`├── .pre-commit-config.yaml # Quality hooks`))
     console.log(chalk.white(`├── pyproject.toml          # Project configuration`))
-    console.log(chalk.white(`├── src/${projectName.replace(/-/g, '_')}/`))
+    console.log(chalk.white(`├── src/${snakeCaseName}/`))
     console.log(chalk.white(`│   ├── __init__.py`))
     console.log(chalk.white(`│   ├── main.py             # Main code`))
     console.log(chalk.white(`│   └── py.typed            # Type marker`))
@@ -144,7 +159,7 @@ async function createPythonProject(projectName) {
     console.log(chalk.white('2. code . (open in VS Code with Claude)'))
     console.log()
     console.log(chalk.cyan('🔧 Comandos de desarrollo:'))
-    console.log(chalk.white(`uv run python -m ${projectName.replace(/-/g, '_')}.main    # Run application`))
+    console.log(chalk.white(`uv run python -m ${snakeCaseName}.main    # Run application`))
     console.log(chalk.white('uv run pytest --cov=src                    # Run tests with coverage'))
     console.log(chalk.white('uv run ruff check . && uv run ruff format . # Lint & format'))
     console.log(chalk.white('uv run mypy src/                            # Type checking'))
@@ -172,8 +187,7 @@ async function addModernConfig(projectName) {
     existingConfig = fs.readFileSync('pyproject.toml', 'utf8')
   }
 
-  const newConfig = `
-[tool.ruff]
+  const newConfig = `[tool.ruff]
 line-length = 88
 target-version = "py38"
 src = ["src"]
@@ -205,6 +219,8 @@ addopts = ["--strict-markers", "--strict-config", "--cov=src", "--cov-report=ter
 
 async function createCodeFiles(projectName) {
   const moduleName = projectName.replace(/-/g, '_')
+  const srcPath = path.join('src', moduleName)
+  const testsPath = 'tests'
 
   // Función para asegurar que las carpetas existen
   function ensureDirSync(dir) {
@@ -214,11 +230,11 @@ async function createCodeFiles(projectName) {
   }
 
   // Asegurar que las carpetas necesarias existan
-  ensureDirSync(path.join(process.cwd(), 'src', moduleName))
-  ensureDirSync(path.join(process.cwd(), 'tests'))
+  ensureDirSync(srcPath)
+  ensureDirSync(testsPath)
 
-  // Crear main.py
-  const mainPy = `"""Main module following Python modern standards."""
+  // Crear main.py con dedent para evitar indentación extra
+  const mainPyContent = `"""Main module following Python modern standards."""
 
 from __future__ import annotations
 
@@ -227,11 +243,11 @@ from typing import Any
 
 
 async def main() -> dict[str, Any]:
-    """Main application entry point.
+    \"""Main application entry point.
     
     Returns:
         Dictionary with application status
-    """
+    \"""
     return {
         "status": "success", 
         "message": "Application running",
@@ -242,21 +258,21 @@ async def main() -> dict[str, Any]:
 if __name__ == "__main__":
     result = asyncio.run(main())
     print(result)
-`
+`.replace(/^ {2}/gm, '')
 
-  fs.writeFileSync(path.join('src', moduleName, 'main.py'), mainPy)
+  fs.writeFileSync(path.join(srcPath, 'main.py'), mainPyContent)
 
   // Crear py.typed
-  fs.writeFileSync(path.join('src', moduleName, 'py.typed'), '')
+  fs.writeFileSync(path.join(srcPath, 'py.typed'), '')
 
   // Crear __init__.py vacío en tests si no existe
-  const testsInitPath = path.join('tests', '__init__.py')
+  const testsInitPath = path.join(testsPath, '__init__.py')
   if (!fs.existsSync(testsInitPath)) {
     fs.writeFileSync(testsInitPath, '')
   }
 
-  // Crear test
-  const testPy = `"""Tests for main module."""
+  // Crear test_main.py con dedent
+  const testPyContent = `"""Tests for main module."""
 
 import pytest
 
@@ -264,17 +280,17 @@ from ${moduleName}.main import main
 
 
 class TestMain:
-    """Test suite for main module."""
+    \"""Test suite for main module."""
     
     @pytest.mark.asyncio
     async def test_main_returns_dict(self):
-        """Test that main function returns a dictionary."""
+        \"""Test that main function returns a dictionary.\"""
         result = await main()
         assert isinstance(result, dict)
     
     @pytest.mark.asyncio
     async def test_main_required_keys(self):
-        """Test that main function returns required keys."""
+        \"""Test that main function returns required keys.\"""
         result = await main()
         required_keys = ["status", "message", "project"]
         
@@ -283,15 +299,15 @@ class TestMain:
     
     @pytest.mark.asyncio
     async def test_main_status_success(self):
-        """Test that main function returns success status."""
+        \"""Test that main function returns success status.\"""
         result = await main()
         assert result["status"] == "success"
-`
+`.replace(/^ {2}/gm, '')
 
-  fs.writeFileSync(path.join('tests', 'test_main.py'), testPy)
+  fs.writeFileSync(path.join(testsPath, 'test_main.py'), testPyContent)
 
-  // Crear .claude.md COMPLETO (versión original detallada)
-  const claudeMd = `# Claude Code - Python Standards Modernos
+  // Crear .claude.md (dedent applied)
+  const claudeMdContent = `# Claude Code - Python Standards Modernos
 
 ## REGLAS OBLIGATORIAS PARA ESTE PROYECTO
 
@@ -315,23 +331,25 @@ class TestMain:
 - **OBLIGATORIO**: Modificar \`src/[proyecto]/main.py\` PRIMERO
 - **OBLIGATORIO**: main.py debe ser el punto de entrada principal
 - **OBLIGATORIO**: Implementar la funcionalidad en main.py antes de crear archivos adicionales
-- **OBLIGATORIO**: Actualizar `src/[proyecto]/__init__.py` para importar la función main desde main.py: `from .main import main`
+- **OBLIGATORIO**: Actualizar \`src/[proyecto]/__init__.py\` para importar la función main desde main.py: \`from .main import main\`
 - **SOLO crear archivos nuevos** si main.py se vuelve muy grande (>200 líneas)
 
 #### **2. ESTRUCTURA DE main.py OBLIGATORIA**
+\`\`\`python
 """Main module for [FUNCIONALIDAD] - brief description."""
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
-Imports adicionales según necesidad
+# Imports adicionales según necesidad
 
 async def main() -> dict[str, Any]:
-    """Main application entry point.
+    \"""Main application entry point.
+    
     Returns:
         Dictionary with application results
-    """
+    \"""
     # IMPLEMENTAR FUNCIONALIDAD AQUÍ
     result = await tu_funcion_principal()
     return {"status": "success", "result": result}
@@ -339,6 +357,7 @@ async def main() -> dict[str, Any]:
 if __name__ == "__main__":
     result = asyncio.run(main())
     print(result)
+\`\`\`
 #### **3. CUÁNDO CREAR ARCHIVOS ADICIONALES**
 Solo crear nuevos archivos (.py) si:
 - main.py supera 200 líneas
@@ -370,7 +389,7 @@ async def process_data(
     limit: int = 100,
     metadata: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Process data items asynchronously.
+    \"""Process data items asynchronously.
     
     Args:
         items: List of items to process
@@ -382,7 +401,7 @@ async def process_data(
         
     Raises:
         ValueError: If limit is negative
-    """
+    \"""
     if limit < 0:
         raise ValueError("Limit must be non-negative")
     
@@ -412,7 +431,7 @@ async def process_data(
 - Editar \`src/\\<nombre_del_proyecto\\>/main.py\`: Agregar funciones como:
   \`\`\`python
   def suma(a: int, b: int) -> int:
-      """Suma dos números enteros."""
+      \"""Suma dos números enteros.\"""
       return a + b
   \`\`\`
 - Mantener y expandir la función \`main()\` existente si es relevante (ej: llamarla desde main()).
@@ -422,7 +441,7 @@ async def process_data(
       assert suma(2, 3) == 5
   \`\`\`
 
-**NO HACER NUNCA (ERRORES COMUNES A EVITAR):**
+**NO HACER NUNCA (ERRORES COMÚNES A EVITAR):**
 1. ❌ Crear archivos nuevos como \`calculator.py\`, \`utils.py\`, \`services.py\` o cualquier otro sin aprobación explícita del usuario. Razón: Mantiene la simplicidad y evita fragmentación prematura del código.
 2. ❌ Ignorar o sobrescribir \`main.py\` existente; siempre edita y agrega al código actual sin eliminar funcionalidad previa. Razón: Preserva el entry point y la estructura inicial del proyecto.
 3. ❌ Crear múltiples archivos innecesariamente; mantén la simplicidad: todo en \`main.py\` hasta que el proyecto escale y el usuario lo solicite. Razón: Facilita el mantenimiento inicial y reduce complejidad.
@@ -459,12 +478,12 @@ uv lock                      # Actualizar lockfile
 \`\`\`
 
 **Claude: Sigue estas reglas ESTRICTAMENTE. No hagas excepciones.**
-`
+`.replace(/^ {2}/gm, '')
 
-  fs.writeFileSync('.claude.md', claudeMd)
+  fs.writeFileSync('.claude.md', claudeMdContent)
 
-  // Crear .pre-commit-config.yaml
-  const preCommitConfig = `repos:
+  // Crear .pre-commit-config.yaml con dedent
+  const preCommitConfigContent = `repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
     hooks:
@@ -492,9 +511,9 @@ uv lock                      # Actualizar lockfile
     hooks:
       - id: bandit
         args: ["-c", "pyproject.toml"]
-`
+`.replace(/^ {2}/gm, '')
 
-  fs.writeFileSync('.pre-commit-config.yaml', preCommitConfig)
+  fs.writeFileSync('.pre-commit-config.yaml', preCommitConfigContent)
 }
 
 program.parse()
