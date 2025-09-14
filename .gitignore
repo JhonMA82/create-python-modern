@@ -143,3 +143,4 @@ temp/
 # Reports
 report.md
 .ruff_cache/
+nul
