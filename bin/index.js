@@ -309,6 +309,48 @@ class TestMain:
 - ✅ pre-commit (hooks)
 - ✅ uv (package manager)
 
+### **FLUJO DE DESARROLLO OBLIGATORIO**
+
+#### **1. SIEMPRE EMPEZAR POR main.py**
+- **OBLIGATORIO**: Modificar `src/[proyecto]/main.py` PRIMERO
+- **OBLIGATORIO**: main.py debe ser el punto de entrada principal
+- **OBLIGATORIO**: Implementar la funcionalidad en main.py antes de crear archivos adicionales
+- **SOLO crear archivos nuevos** si main.py se vuelve muy grande (>200 líneas)
+
+#### **2. ESTRUCTURA DE main.py OBLIGATORIA**
+"""Main module for [FUNCIONALIDAD] - brief description."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+Imports adicionales según necesidad
+
+async def main() -> dict[str, Any]:
+"""Main application entry point.
+Returns:
+    Dictionary with application results
+"""
+# IMPLEMENTAR FUNCIONALIDAD AQUÍ
+result = await tu_funcion_principal()
+return {"status": "success", "result": result}
+
+if __name__ == "__main__":
+result = asyncio.run(main())
+print(result)
+#### **3. CUÁNDO CREAR ARCHIVOS ADICIONALES**
+Solo crear nuevos archivos (.py) si:
+- main.py supera 200 líneas
+- Necesitas separar responsabilidades muy distintas
+- Tienes clases complejas que merecen su propio archivo
+
+**Orden de creación:**
+1. **Modificar main.py** (SIEMPRE PRIMERO)
+2. Si es necesario, crear módulos adicionales
+3. Actualizar imports en main.py
+4. Crear/actualizar tests
+
+
 ### CÓDIGO OBLIGATORIO
 1. **Type hints en TODAS las funciones públicas**
 2. **Async/await para operaciones I/O**
@@ -351,6 +393,45 @@ async def process_data(
 - Mocks para dependencias externas
 - Tests parametrizados cuando aplique
 - Tests async con pytest-asyncio
+
+### **REGLAS CRÍTICAS PARA MODIFICACIONES: SIEMPRE PRIORIZA EDITAR ARCHIVOS EXISTENTES**
+
+**IMPORTANTE: Este proyecto sigue un diseño minimalista. El código principal debe mantenerse en UN SOLO ARCHIVO: \`src/\<nombre_del_proyecto\>/main.py\`. Los tests en UN SOLO ARCHIVO: \`tests/test_main.py\`. NO crees nuevos archivos de código o tests a menos que el usuario lo apruebe explícitamente.**
+
+**PROTOCOLO OBLIGATORIO PARA NUEVAS FUNCIONALIDADES (ej: "agrega una calculadora", "implementa logging", etc.):**
+1. ✅ **SIEMPRE** edita el archivo existente \`src/\<nombre_del_proyecto\>/main.py\` agregando las nuevas funciones o lógica. NO ignores ni sobrescribas completamente el contenido actual; expándelo manteniendo la estructura existente (incluyendo la función \`main()\` si aplica).
+2. ✅ Agrega las funciones nuevas directamente en \`main.py\`, respetando type hints, docstrings y async si es I/O.
+3. ✅ Edita \`tests/test_main.py\` agregando tests para las nuevas funciones. NO crees archivos como \`test_calculator.py\`.
+4. ✅ Si crees que se necesita un nuevo archivo (ej: para una integración compleja), **DETENTE** y pregunta al usuario: "¿Apruebas crear un nuevo archivo como \`calculator.py\` para esta funcionalidad, o prefieres agregarlo a \`main.py\`?"
+
+**EJEMPLO PRÁCTICO:**
+**Usuario pide:** "Crea una calculadora"
+
+**HACER:**
+- Editar \`src/\<nombre_del_proyecto\>/main.py\`: Agregar funciones como:
+  \`\`\`python
+  def suma(a: int, b: int) -> int:
+      """Suma dos números enteros."""
+      return a + b
+  \`\`\`
+- Mantener y expandir la función \`main()\` existente si es relevante (ej: llamarla desde main()).
+- Editar \`tests/test_main.py\`: Agregar:
+  \`\`\`python
+  def test_suma():
+      assert suma(2, 3) == 5
+  \`\`\`
+
+**NO HACER NUNCA (ERRORES COMUNES A EVITAR):**
+1. ❌ Crear archivos nuevos como \`calculator.py\`, \`utils.py\`, \`services.py\` o cualquier otro sin aprobación explícita del usuario. Razón: Mantiene la simplicidad y evita fragmentación prematura del código.
+2. ❌ Ignorar o sobrescribir \`main.py\` existente; siempre edita y agrega al código actual sin eliminar funcionalidad previa. Razón: Preserva el entry point y la estructura inicial del proyecto.
+3. ❌ Crear múltiples archivos innecesariamente; mantén la simplicidad: todo en \`main.py\` hasta que el proyecto escale y el usuario lo solicite. Razón: Facilita el mantenimiento inicial y reduce complejidad.
+4. ❌ Crear archivos de tests separados; todos los tests van en \`test_main.py\`. Razón: Centraliza tests para fácil ejecución y cobertura.
+5. ❌ Reestructurar la arquitectura (ej: mover código a carpetas nuevas) sin consultar al usuario primero. Razón: El usuario controla la evolución del proyecto.
+
+**VERIFICACIÓN ANTES DE APLICAR CUALQUIER CAMBIO:**
+- Lee este archivo \`.claude.md\` COMPLETO antes de proceder.
+- Usa herramientas como \`read_file\` para ver el contenido actual de \`main.py\` y \`test_main.py\` antes de editar.
+- Después de cambios, valida: \`uv run ruff check . && uv run pytest --cov=src\`.
 
 ### SEGURIDAD CRÍTICA
 - Validar TODAS las entradas externas
