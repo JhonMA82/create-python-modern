@@ -315,6 +315,7 @@ class TestMain:
 - **OBLIGATORIO**: Modificar \`src/[proyecto]/main.py\` PRIMERO
 - **OBLIGATORIO**: main.py debe ser el punto de entrada principal
 - **OBLIGATORIO**: Implementar la funcionalidad en main.py antes de crear archivos adicionales
+- **OBLIGATORIO**: Actualizar `src/[proyecto]/__init__.py` para importar la función main desde main.py: `from .main import main`
 - **SOLO crear archivos nuevos** si main.py se vuelve muy grande (>200 líneas)
 
 #### **2. ESTRUCTURA DE main.py OBLIGATORIA**
