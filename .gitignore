@@ -139,3 +139,7 @@ tmp/
 temp/
 *.tmp
 *.temp
+
+# Reports
+report.md
+.ruff_cache/

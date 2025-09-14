@@ -122,8 +122,10 @@ async function createPythonProject(projectName) {
       stdio: 'pipe',
     })
 
-    spinner.text = 'Instalando dependencias de desarrollo...'
-    execSync('uv add --dev ruff mypy pytest pytest-cov pytest-asyncio pre-commit bandit', {
+    // Las dependencias de desarrollo ya se definen en dependency-groups.dev en el pyproject.toml
+    // Solo necesitamos sincronizar para instalarlas
+    spinner.text = 'Sincronizando dependencias de desarrollo...'
+    execSync('uv sync', {
       stdio: 'pipe',
     })
     spinner.succeed('Dependencias instaladas')
@@ -181,15 +183,18 @@ async function createPythonProject(projectName) {
 }
 
 async function addModernConfig(projectName) {
-  // Read existing pyproject.toml from uv init and append config
+  // Read existing pyproject.toml from uv init
   let existingConfig = ''
   if (fs.existsSync('pyproject.toml')) {
     existingConfig = fs.readFileSync('pyproject.toml', 'utf8')
   }
 
-  const newConfig = `[tool.ruff]
+  // Simple approach: append new configuration after existing content
+  const newConfig = `
+
+[tool.ruff]
 line-length = 88
-target-version = "py38"
+target-version = "py311"
 src = ["src"]
 
 [tool.ruff.lint]
@@ -200,7 +205,7 @@ ignore = ["E501", "S101"]
 "tests/*" = ["S101", "ARG", "PLR2004"]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -210,11 +215,339 @@ no_implicit_optional = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
 addopts = ["--strict-markers", "--strict-config", "--cov=src", "--cov-report=term-missing", "--cov-fail-under=80"]
-`
 
-  const fullConfig = existingConfig.trim() ? `${existingConfig}\n${newConfig.trim()}\n` : newConfig.trim()
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:"
+]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.8.6",
+    "mypy>=1.18.1",
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.13.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "factory-boy>=3.3.0",
+    "pytest-mock>=3.14.0",
+]`
+
+  // Combine existing and new config
+  const fullConfig = existingConfig.trim() + newConfig
   fs.writeFileSync('pyproject.toml', fullConfig)
+}
+
+// Simple TOML parser and serializer for this use case
+function parseToml(tomlStr) {
+  const result = {}
+  const lines = tomlStr.split('\n')
+  let currentSection = result
+  const sectionStack = []
+  let arrayContinuation = false
+  let currentArrayKey = null
+  let currentArrayValue = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+
+    // Handle array continuation
+    if (arrayContinuation) {
+      if (trimmed.endsWith(']')) {
+        // End of array
+        arrayContinuation = false
+        const arrayContent = trimmed.slice(0, -1).trim()
+        if (arrayContent) {
+          currentArrayValue.push(...parseArrayItems(arrayContent))
+        }
+        currentSection[currentArrayKey] = currentArrayValue
+        currentArrayKey = null
+        currentArrayValue = []
+      } else {
+        // Continue array
+        currentArrayValue.push(...parseArrayItems(trimmed))
+      }
+      continue
+    }
+
+    // Section headers
+    const sectionMatch = trimmed.match(/^\[([^\]]+)\]/)
+    if (sectionMatch) {
+      const sectionPath = sectionMatch[1].split('.')
+      let current = result
+
+      for (let i = 0; i < sectionPath.length - 1; i++) {
+        if (!current[sectionPath[i]]) {
+          current[sectionPath[i]] = {}
+        }
+        current = current[sectionPath[i]]
+      }
+
+      const sectionName = sectionPath[sectionPath.length - 1]
+      current[sectionName] = current[sectionName] || {}
+      currentSection = current[sectionName]
+      sectionStack.length = 0
+      sectionStack.push(...sectionPath)
+      continue
+    }
+
+    // Key-value pairs
+    const kvMatch = trimmed.match(/^([^=]+)\s*=\s*(.*)$/)
+    if (kvMatch) {
+      const key = kvMatch[1].trim()
+      let value = kvMatch[2].trim()
+
+      // Check if this is an array start
+      if (value.startsWith('[')) {
+        if (value.endsWith(']')) {
+          // Complete array in one line
+          const arrayContent = value.slice(1, -1).trim()
+          currentSection[key] = parseArrayItems(arrayContent)
+        } else {
+          // Multi-line array
+          arrayContinuation = true
+          currentArrayKey = key
+          currentArrayValue = []
+          const arrayContent = value.slice(1).trim()
+          if (arrayContent) {
+            currentArrayValue.push(...parseArrayItems(arrayContent))
+          }
+        }
+      } else {
+        // Handle inline tables (special case for authors)
+        if (value.startsWith('{') && value.endsWith('}')) {
+          try {
+            currentSection[key] = parseInlineTable(value)
+          } catch (e) {
+            // Fallback: keep as string
+            currentSection[key] = value
+          }
+        } else {
+          // Remove quotes if present
+          if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1)
+          }
+          currentSection[key] = value
+        }
+      }
+    }
+  }
+
+  return result
+}
+
+function parseArrayItems(arrayStr) {
+  const items = []
+  let currentItem = ''
+  let inQuotes = false
+  let quoteChar = ''
+
+  for (let i = 0; i < arrayStr.length; i++) {
+    const char = arrayStr[i]
+
+    if ((char === '"' || char === "'") && (i === 0 || arrayStr[i - 1] !== '\\')) {
+      if (!inQuotes) {
+        inQuotes = true
+        quoteChar = char
+      } else if (char === quoteChar) {
+        inQuotes = false
+        quoteChar = ''
+      } else {
+        currentItem += char
+      }
+    } else if (char === ',' && !inQuotes) {
+      if (currentItem.trim()) {
+        items.push(currentItem.trim().replace(/^["']|["']$/g, ''))
+      }
+      currentItem = ''
+    } else {
+      currentItem += char
+    }
+  }
+
+  // Add the last item
+  if (currentItem.trim()) {
+    items.push(currentItem.trim().replace(/^["']|["']$/g, ''))
+  }
+
+  return items
+}
+
+function parseInlineTable(tableStr) {
+  const result = {}
+  let content = tableStr.slice(1, -1).trim()
+
+  // Handle the case where we have an array of inline tables like [{ name = "...", email = "..." }]
+  if (content.startsWith('[') && content.endsWith(']')) {
+    content = content.slice(1, -1).trim()
+    // Return array of inline tables
+    return parseArrayItems(content).map(item => {
+      if (typeof item === 'string' && item.startsWith('{') && item.endsWith('}')) {
+        return parseInlineTable(item)
+      }
+      return item
+    })
+  }
+
+  // Simple parser for inline tables like { name = "author", email = "email" }
+  const pairs = []
+  let currentPair = ''
+  let inBraces = false
+
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i]
+
+    if (char === '{') {
+      inBraces = true
+      currentPair += char
+    } else if (char === '}') {
+      inBraces = false
+      currentPair += char
+    } else if (char === ',' && !inBraces) {
+      if (currentPair.trim()) {
+        pairs.push(currentPair.trim())
+      }
+      currentPair = ''
+    } else {
+      currentPair += char
+    }
+  }
+
+  if (currentPair.trim()) {
+    pairs.push(currentPair.trim())
+  }
+
+  for (const pair of pairs) {
+    const trimmed = pair.trim()
+    if (!trimmed) continue
+
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      // Nested inline table
+      result['nested'] = parseInlineTable(trimmed)
+      continue
+    }
+
+    const match = trimmed.match(/^([^=]+)\s*=\s*(.*)$/)
+    if (match) {
+      const key = match[1].trim()
+      let value = match[2].trim()
+
+      // Remove quotes if present
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1)
+      }
+
+      result[key] = value
+    }
+  }
+
+  return result
+}
+
+function tomlify(obj, indent = 0) {
+  const spaces = ' '.repeat(indent)
+  let result = ''
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === null || value === undefined) continue
+
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      // Check if it's an inline table (has simple key-value pairs)
+      const keys = Object.keys(value)
+      const isInlineTable =
+        keys.length > 0 &&
+        keys.every(
+          k => typeof value[k] === 'string' || typeof value[k] === 'boolean' || typeof value[k] === 'number',
+        ) &&
+        ((keys.includes('name') && keys.includes('email')) || keys.length <= 3)
+
+      if (isInlineTable && (key === 'authors' || key === 'maintainers' || indent > 0)) {
+        result += `${spaces}${key} = ${inlineTableToToml(value)}\n`
+      } else {
+        // Quote key if it contains special characters for sections too
+        const quotedKey = key.includes('*') || key.includes('/') || key.includes('.') ? `"${key}"` : key
+        result += `${spaces}[${quotedKey}]\n`
+        result += tomlify(value, indent + 2)
+      }
+    } else {
+      // Quote key if it contains special characters
+      const quotedKey = key.includes('*') || key.includes('/') || key.includes('.') ? `"${key}"` : key
+      result += `${spaces}${quotedKey} = `
+      if (Array.isArray(value)) {
+        if (value.length === 0) {
+          result += '[]\n'
+        } else if (typeof value[0] === 'object' && value[0] !== null) {
+          // Array of objects (inline tables)
+          result += '[\n'
+          for (const item of value) {
+            result += `${spaces}  ${inlineTableToToml(item)},\n`
+          }
+          result += `${spaces}]\n`
+        } else {
+          // Array of strings/primitives
+          result += '[\n'
+          for (const item of value) {
+            if (typeof item === 'string') {
+              result += `${spaces}  "${item}",\n`
+            } else {
+              result += `${spaces}  ${item},\n`
+            }
+          }
+          result += `${spaces}]\n`
+        }
+      } else if (typeof value === 'string') {
+        result += `"${value}"\n`
+      } else if (typeof value === 'boolean') {
+        result += value ? 'true\n' : 'false\n'
+      } else if (typeof value === 'number') {
+        result += `${value}\n`
+      } else {
+        result += `"${value}"\n`
+      }
+    }
+  }
+
+  return result
+}
+
+function inlineTableToToml(obj) {
+  const pairs = []
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === 'string') {
+      pairs.push(`${key} = "${value}"`)
+    } else if (typeof value === 'boolean') {
+      pairs.push(`${key} = ${value}`)
+    } else if (typeof value === 'number') {
+      pairs.push(`${key} = ${value}`)
+    } else {
+      pairs.push(`${key} = "${value}"`)
+    }
+  }
+  return `{ ${pairs.join(', ')} }`
 }
 
 async function createCodeFiles(projectName) {
@@ -264,6 +597,15 @@ if __name__ == "__main__":
 
   // Crear py.typed
   fs.writeFileSync(path.join(srcPath, 'py.typed'), '')
+
+  // Crear __init__.py con import de main
+  const initPyContent = `"""${projectName} - A modern Python project."""
+
+
+__all__ = ["main"]
+`.replace(/^ {2}/gm, '')
+
+  fs.writeFileSync(path.join(srcPath, '__init__.py'), initPyContent)
 
   // Crear __init__.py vacío en tests si no existe
   const testsInitPath = path.join(testsPath, '__init__.py')
@@ -316,25 +658,33 @@ class TestMain:
 - ✅ pyproject.toml OBLIGATORIO
 - ❗ Type hints OBLIGATORIOS en todas las funciones
 - ❗ Tests pytest OBLIGATORIOS (>80% cobertura)
-- ❗ Python >= 3.8
+- ❗ Python >= 3.11
 
 ### HERRAMIENTAS INSTALADAS
 - ✅ Ruff (linting + formatting)
 - ✅ MyPy (type checking)
-- ✅ pytest + pytest-cov (testing)
+- ✅ pytest + pytest-cov + pytest-asyncio (testing)
 - ✅ pre-commit (hooks)
 - ✅ uv (package manager)
+- ✅ bandit (security scanning)
 
-### **FLUJO DE DESARROLLO OBLIGATORIO**
+### **FLUJO DE DESARROLLO RECOMENDADO**
 
-#### **1. SIEMPRE EMPEZAR POR main.py**
-- **OBLIGATORIO**: Modificar \`src/[proyecto]/main.py\` PRIMERO
-- **OBLIGATORIO**: main.py debe ser el punto de entrada principal
-- **OBLIGATORIO**: Implementar la funcionalidad en main.py antes de crear archivos adicionales
-- **OBLIGATORIO**: Actualizar \`src/[proyecto]/__init__.py\` para importar la función main desde main.py: \`from .main import main\`
-- **SOLO crear archivos nuevos** si main.py se vuelve muy grande (>200 líneas)
+#### **1. ENFOQUE ESCALABLE PARA MÓDULOS**
+- **Recomendado**: Empezar con \`src/[proyecto]/main.py\` como punto de entrada principal
+- **Flexible**: Crear módulos adicionales cuando sea lógicamente apropiado
+- **Estructura sugerida**:
+  \`\`\`
+  src/mi_proyecto/
+  ├── __init__.py          # Exporta funciones principales
+  ├── main.py             # Entry point principal
+  ├── config.py           # Configuración de la aplicación
+  ├── utils/              # Funciones de utilidad reutilizables
+  ├── services/           # Lógica de negocio
+  └── models/             # Modelos de datos
+  \`\`\`
 
-#### **2. ESTRUCTURA DE main.py OBLIGATORIA**
+#### **2. ESTRUCTURA DE main.py RECOMENDADA**
 \`\`\`python
 """Main module for [FUNCIONALIDAD] - brief description."""
 
@@ -342,14 +692,14 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-# Imports adicionales según necesidad
+# Imports de módulos internos según necesidad
 
 async def main() -> dict[str, Any]:
-    \"""Main application entry point.
-    
+    """Main application entry point.
+
     Returns:
         Dictionary with application results
-    \"""
+    """
     # IMPLEMENTAR FUNCIONALIDAD AQUÍ
     result = await tu_funcion_principal()
     return {"status": "success", "result": result}
@@ -358,17 +708,20 @@ if __name__ == "__main__":
     result = asyncio.run(main())
     print(result)
 \`\`\`
-#### **3. CUÁNDO CREAR ARCHIVOS ADICIONALES**
-Solo crear nuevos archivos (.py) si:
-- main.py supera 200 líneas
-- Necesitas separar responsabilidades muy distintas
-- Tienes clases complejas que merecen su propio archivo
+
+#### **3. CUÁNDO CREAR MÓDULOS ADICIONALES**
+Crear nuevos módulos cuando:
+- La funcionalidad pertenece a un dominio lógico diferente
+- Necesitas reutilizar código en múltiples lugares
+- Tienes clases complejas que merecen su propio módulo
+- El código se vuelve difícil de mantener en un solo archivo
 
 **Orden de creación:**
-1. **Modificar main.py** (SIEMPRE PRIMERO)
-2. Si es necesario, crear módulos adicionales
-3. Actualizar imports en main.py
-4. Crear/actualizar tests
+1. **Evaluar si el módulo es necesario** (evitar fragmentación prematura)
+2. **Crear el módulo apropiado** (ej: \`auth.py\`, \`database.py\`, \`utils/helpers.py\`)
+3. **Actualizar imports en archivos que lo necesiten**
+4. **Exportar funciones públicas en \`__init__.py\`**
+5. **Crear tests correspondientes** (\`tests/test_module.py\`)
 
 
 ### CÓDIGO OBLIGATORIO
@@ -414,44 +767,44 @@ async def process_data(
 - Tests parametrizados cuando aplique
 - Tests async con pytest-asyncio
 
-### **REGLAS CRÍTICAS PARA MODIFICACIONES: SIEMPRE PRIORIZA EDITAR ARCHIVOS EXISTENTES**
+### **REGLAS PARA MODIFICACIONES: ENFOQUE EQUILIBRADO**
 
-**IMPORTANTE: Este proyecto sigue un diseño minimalista. El código principal debe mantenerse en UN SOLO ARCHIVO: \`src/\\<nombre_del_proyecto\\>/main.py\`. Los tests en UN SOLO ARCHIVO: \`tests/test_main.py\`. NO crees nuevos archivos de código o tests a menos que el usuario lo apruebe explícitamente.**
+**IMPORTANTE: Este proyecto sigue un diseño escalable que empieza simple pero permite crecimiento organizado. Se prioriza la simplicidad inicial pero se permite una estructura modular cuando sea apropiado.**
 
-**PROTOCOLO OBLIGATORIO PARA NUEVAS FUNCIONALIDADES (ej: "agrega una calculadora", "implementa logging", etc.):**
-1. ✅ **SIEMPRE** edita el archivo existente \`src/\\<nombre_del_proyecto\\>/main.py\` agregando las nuevas funciones o lógica. NO ignores ni sobrescribas completamente el contenido actual; expándelo manteniendo la estructura existente (incluyendo la función \`main()\` si aplica).
-2. ✅ Agrega las funciones nuevas directamente en \`main.py\`, respetando type hints, docstrings y async si es I/O.
-3. ✅ Edita \`tests/test_main.py\` agregando tests para las nuevas funciones. NO crees archivos como \`test_calculator.py\`.
-4. ✅ Si crees que se necesita un nuevo archivo (ej: para una integración compleja), **DETENTE** y pregunta al usuario: "¿Apruebas crear un nuevo archivo como \`calculator.py\` para esta funcionalidad, o prefieres agregarlo a \`main.py\`?"
+**PROTOCOLO PARA NUEVAS FUNCIONALIDADES:**
+1. ✅ **Evalúa el alcance** de la funcionalidad antes de decidir dónde implementarla
+2. ✅ **Funcionalidades pequeñas**: Agregar a \`main.py\` o módulo existente relacionado
+3. ✅ **Funcionalidades complejas o de dominio específico**: Crear módulo dedicado
+4. ✅ **Siempre actualizar** \`__init__.py\` para exportar funciones públicas
+5. ✅ **Crear tests apropiados** en el archivo de test correspondiente
 
 **EJEMPLO PRÁCTICO:**
 **Usuario pide:** "Crea una calculadora"
 
-**HACER:**
-- Editar \`src/\\<nombre_del_proyecto\\>/main.py\`: Agregar funciones como:
-  \`\`\`python
-  def suma(a: int, b: int) -> int:
-      \"""Suma dos números enteros.\"""
-      return a + b
-  \`\`\`
-- Mantener y expandir la función \`main()\` existente si es relevante (ej: llamarla desde main()).
-- Editar \`tests/test_main.py\`: Agregar:
-  \`\`\`python
-  def test_suma():
-      assert suma(2, 3) == 5
-  \`\`\`
+**ENFOQUE RECOMENDADO:**
+- Si es solo operaciones básicas: agregar a \`main.py\`
+- Si es una calculadora completa con múltiples operaciones: crear \`calculator.py\`
+- Si las operaciones son reutilizables: crear \`utils/calculator.py\`
+- Actualizar \`__init__.py\` para exportar funciones principales
+- Crear \`tests/test_calculator.py\` o agregar a \`tests/test_main.py\` según corresponda
 
-**NO HACER NUNCA (ERRORES COMÚNES A EVITAR):**
-1. ❌ Crear archivos nuevos como \`calculator.py\`, \`utils.py\`, \`services.py\` o cualquier otro sin aprobación explícita del usuario. Razón: Mantiene la simplicidad y evita fragmentación prematura del código.
-2. ❌ Ignorar o sobrescribir \`main.py\` existente; siempre edita y agrega al código actual sin eliminar funcionalidad previa. Razón: Preserva el entry point y la estructura inicial del proyecto.
-3. ❌ Crear múltiples archivos innecesariamente; mantén la simplicidad: todo en \`main.py\` hasta que el proyecto escale y el usuario lo solicite. Razón: Facilita el mantenimiento inicial y reduce complejidad.
-4. ❌ Crear archivos de tests separados; todos los tests van en \`test_main.py\`. Razón: Centraliza tests para fácil ejecución y cobertura.
-5. ❌ Reestructurar la arquitectura (ej: mover código a carpetas nuevas) sin consultar al usuario primero. Razón: El usuario controla la evolución del proyecto.
+**EJEMPLOS DE CUÁNDO CREAR MÓDULOS:**
+✅ **Crear módulos cuando:**
+- Configuración de aplicación: \`config.py\`
+- Autenticación: \`auth.py\` o \`services/auth.py\`
+- Base de datos: \`database.py\` o \`models/\`
+- Utilidades reutilizables: \`utils/helpers.py\`
+- API endpoints: \`api/endpoints.py\`
+
+❌ **Evitar crear módulos cuando:**
+- Son solo 2-3 funciones pequeñas
+- El código no se reutiliza en otros lugares
+- La funcionalidad es muy específica y no crecerá
 
 **VERIFICACIÓN ANTES DE APLICAR CUALQUIER CAMBIO:**
-- Lee este archivo \`.claude.md\` COMPLETO antes de proceder.
-- Usa herramientas como \`read_file\` para ver el contenido actual de \`main.py\` y \`test_main.py\` antes de editar.
-- Después de cambios, valida: \`uv run ruff check . && uv run pytest --cov=src\`.
+- Lee este archivo \`.claude.md\` COMPLETO antes de proceder
+- Usa herramientas como \`read_file\` para ver el contenido actual de los archivos antes de editar
+- Después de cambios, valida: \`uv run ruff check . && uv run pytest --cov=src\`
 
 ### SEGURIDAD CRÍTICA
 - Validar TODAS las entradas externas
@@ -477,7 +830,8 @@ uv sync                      # Sincronizar dependencias
 uv lock                      # Actualizar lockfile
 \`\`\`
 
-**Claude: Sigue estas reglas ESTRICTAMENTE. No hagas excepciones.**
+
+**Claude: Sigue estas reglas como guía flexible. Prioriza la calidad del código y la escalabilidad del proyecto.**
 `.replace(/^ {2}/gm, '')
 
   fs.writeFileSync('.claude.md', claudeMdContent)
