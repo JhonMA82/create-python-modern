@@ -1,0 +1,43 @@
+{
+  "name": "create-python-modern",
+  "version": "1.0.1",
+  "description": "Create modern Python projects with comprehensive best practices, type hints, testing, and Claude Code integration",
+  "main": "index.js",
+  "bin": {
+    "create-python-modern": "bin/index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "python",
+    "template",
+    "boilerplate",
+    "modern",
+    "uv",
+    "ruff",
+    "mypy",
+    "pytest",
+    "type-hints",
+    "async",
+    "claude-code",
+    "best-practices",
+    "pydantic",
+    "structlog",
+    "bandit",
+    "security"
+  ],
+  "author": "Tu Nombre",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^11.0.0",
+    "chalk": "^4.1.2",
+    "ora": "^5.4.1",
+    "inquirer": "^8.2.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jhonma82/create-python-modern.git"
+  },
+  "homepage": "https://github.com/jhonma82/create-python-modern#readme"
+}
