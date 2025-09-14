@@ -1,6 +1,6 @@
 {
   "name": "create-python-modern",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "Create modern Python projects with comprehensive best practices, type hints, testing, and Claude Code integration",
   "main": "index.js",
   "bin": {
