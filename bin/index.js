@@ -312,7 +312,7 @@ class TestMain:
 ### **FLUJO DE DESARROLLO OBLIGATORIO**
 
 #### **1. SIEMPRE EMPEZAR POR main.py**
-- **OBLIGATORIO**: Modificar `src/[proyecto]/main.py` PRIMERO
+- **OBLIGATORIO**: Modificar \`src/[proyecto]/main.py\` PRIMERO
 - **OBLIGATORIO**: main.py debe ser el punto de entrada principal
 - **OBLIGATORIO**: Implementar la funcionalidad en main.py antes de crear archivos adicionales
 - **SOLO crear archivos nuevos** si main.py se vuelve muy grande (>200 líneas)
@@ -327,17 +327,17 @@ from typing import Any
 Imports adicionales según necesidad
 
 async def main() -> dict[str, Any]:
-"""Main application entry point.
-Returns:
-    Dictionary with application results
-"""
-# IMPLEMENTAR FUNCIONALIDAD AQUÍ
-result = await tu_funcion_principal()
-return {"status": "success", "result": result}
+    """Main application entry point.
+    Returns:
+        Dictionary with application results
+    """
+    # IMPLEMENTAR FUNCIONALIDAD AQUÍ
+    result = await tu_funcion_principal()
+    return {"status": "success", "result": result}
 
 if __name__ == "__main__":
-result = asyncio.run(main())
-print(result)
+    result = asyncio.run(main())
+    print(result)
 #### **3. CUÁNDO CREAR ARCHIVOS ADICIONALES**
 Solo crear nuevos archivos (.py) si:
 - main.py supera 200 líneas
@@ -396,10 +396,10 @@ async def process_data(
 
 ### **REGLAS CRÍTICAS PARA MODIFICACIONES: SIEMPRE PRIORIZA EDITAR ARCHIVOS EXISTENTES**
 
-**IMPORTANTE: Este proyecto sigue un diseño minimalista. El código principal debe mantenerse en UN SOLO ARCHIVO: \`src/\<nombre_del_proyecto\>/main.py\`. Los tests en UN SOLO ARCHIVO: \`tests/test_main.py\`. NO crees nuevos archivos de código o tests a menos que el usuario lo apruebe explícitamente.**
+**IMPORTANTE: Este proyecto sigue un diseño minimalista. El código principal debe mantenerse en UN SOLO ARCHIVO: \`src/\\<nombre_del_proyecto\\>/main.py\`. Los tests en UN SOLO ARCHIVO: \`tests/test_main.py\`. NO crees nuevos archivos de código o tests a menos que el usuario lo apruebe explícitamente.**
 
 **PROTOCOLO OBLIGATORIO PARA NUEVAS FUNCIONALIDADES (ej: "agrega una calculadora", "implementa logging", etc.):**
-1. ✅ **SIEMPRE** edita el archivo existente \`src/\<nombre_del_proyecto\>/main.py\` agregando las nuevas funciones o lógica. NO ignores ni sobrescribas completamente el contenido actual; expándelo manteniendo la estructura existente (incluyendo la función \`main()\` si aplica).
+1. ✅ **SIEMPRE** edita el archivo existente \`src/\\<nombre_del_proyecto\\>/main.py\` agregando las nuevas funciones o lógica. NO ignores ni sobrescribas completamente el contenido actual; expándelo manteniendo la estructura existente (incluyendo la función \`main()\` si aplica).
 2. ✅ Agrega las funciones nuevas directamente en \`main.py\`, respetando type hints, docstrings y async si es I/O.
 3. ✅ Edita \`tests/test_main.py\` agregando tests para las nuevas funciones. NO crees archivos como \`test_calculator.py\`.
 4. ✅ Si crees que se necesita un nuevo archivo (ej: para una integración compleja), **DETENTE** y pregunta al usuario: "¿Apruebas crear un nuevo archivo como \`calculator.py\` para esta funcionalidad, o prefieres agregarlo a \`main.py\`?"
@@ -408,7 +408,7 @@ async def process_data(
 **Usuario pide:** "Crea una calculadora"
 
 **HACER:**
-- Editar \`src/\<nombre_del_proyecto\>/main.py\`: Agregar funciones como:
+- Editar \`src/\\<nombre_del_proyecto\\>/main.py\`: Agregar funciones como:
   \`\`\`python
   def suma(a: int, b: int) -> int:
       """Suma dos números enteros."""
