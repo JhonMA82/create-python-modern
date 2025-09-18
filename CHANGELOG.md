@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.8] - 2025-09-18
 
 ### Changed
+- 708555f chore(release): v1.0.8
+- 56ad416 fix: Corregir comparación de rutas en release script
+- bf2bbca feat: Implementar sistema de templates y automatización de releases
+- ba91bd3 chore: Add nul to gitignore
+
+## [1.0.8] - 2025-09-18
+
+### Changed
 - 56ad416 fix: Corregir comparación de rutas en release script
 - bf2bbca feat: Implementar sistema de templates y automatización de releases
 - ba91bd3 chore: Add nul to gitignore
