@@ -46,7 +46,7 @@ function copyTemplate(relTemplatePath, destPath, vars = {}) {
 program
   .name('create-python-modern')
   .description('Crea proyectos Python con mejores prácticas')
-  .version('1.0.0')
+  .version('1.0.9')
   .argument('[project-name]', 'Name of the project to create')
   .action(async projectName => {
     console.log(chalk.blue.bold('🚀 Crear Proyecto Python Moderno'))
