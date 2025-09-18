@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.11] - 2025-09-18
+
+### Changed
+- df314d6 refactor(release): Corregir problemas críticos en scripts/release.js
+- 2e6e15e fix
+- cfb2294 chore(release): v1.0.8
+- 78195c2 fic release.js
+- eb2c9d1 chore(release): v1.0.8
+- 708555f chore(release): v1.0.8
+- 56ad416 fix: Corregir comparación de rutas en release script
+- bf2bbca feat: Implementar sistema de templates y automatización de releases
+- ba91bd3 chore: Add nul to gitignore
+- a409d41 chore(release): v1.0.8
+
 ## [1.0.8] - 2025-09-18
 
 ### Changed
