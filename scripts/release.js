@@ -16,6 +16,7 @@ class ReleaseManager {
   constructor() {
     this.warnings = []
     this.errors = []
+    this.currentBranch = null
     this.report = {
       timestamp: new Date().toISOString(),
       version: null,
@@ -47,12 +48,12 @@ class ReleaseManager {
   async preVerification() {
     this.log('=== PASO 1: Verificación previa ===')
 
-    // Verificar rama actual
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim()
-    if (branch !== 'master' && branch !== 'main') {
-      throw new Error(`Rama actual es '${branch}'. Debe estar en 'master' o 'main'`)
+    // Verificar rama actual - usar 'master' para consistencia según instrucciones
+    this.currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim()
+    if (this.currentBranch !== 'master' && this.currentBranch !== 'main') {
+      throw new Error(`Rama actual es '${this.currentBranch}'. Debe estar en 'master' o 'main'`)
     }
-    this.log(`✅ Rama correcta: ${branch}`)
+    this.log(`✅ Rama correcta: ${this.currentBranch}`)
 
     // Verificar estado de git
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf8' }).trim()
@@ -81,7 +82,11 @@ class ReleaseManager {
 
     // Instalar dependencias
     this.log('📦 Instalando dependencias...')
-    execSync('npm ci', { stdio: 'inherit' })
+    try {
+      execSync('npm ci', { stdio: 'inherit' })
+    } catch (error) {
+      throw new Error(`Error instalando dependencias: ${error.message}`)
+    }
 
     // Verificar tests
     this.log('🧪 Ejecutando tests...')
@@ -102,8 +107,12 @@ class ReleaseManager {
     const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'))
     if (packageJson.scripts && packageJson.scripts.build) {
       this.log('🔨 Ejecutando build...')
-      execSync('npm run build', { stdio: 'inherit' })
-      this.log('✅ Build completado')
+      try {
+        execSync('npm run build', { stdio: 'inherit' })
+        this.log('✅ Build completado')
+      } catch (error) {
+        throw new Error(`Error en build: ${error.message}`)
+      }
     } else {
       this.log('ℹ️  No hay script de build definido - omitiendo')
     }
@@ -117,12 +126,13 @@ class ReleaseManager {
     const currentVersion = execSync('npm pkg get version', { encoding: 'utf8' }).trim().replace(/"/g, '')
     this.report.version = currentVersion
 
-    // Verificar si ya existe un tag para esta versión
-    try {
-      execSync(`git tag -l v${currentVersion}`, { stdio: 'pipe' })
+    // Verificar si ya existe un tag para esta versión - CORREGIDO
+    const existingTags = execSync(`git tag -l v${currentVersion}`, { encoding: 'utf8' }).trim()
+    if (existingTags) {
       this.log(`✅ Usando versión existente: ${currentVersion} (tag ya existe)`)
-    } catch (error) {
+    } else {
       // El tag no existe, incrementar versión
+      this.log(`🔢 Incrementando versión ${releaseType}: ${currentVersion}`)
       execSync(`npm version ${releaseType} --no-git-tag-version`, { stdio: 'inherit' })
 
       // Obtener nueva versión
@@ -222,11 +232,11 @@ class ReleaseManager {
       }
     }
 
-    // Verificar si el tag ya existe
-    try {
-      execSync(`git tag -l v${this.report.version}`, { stdio: 'pipe' })
+    // Verificar si el tag ya existe - CORREGIDO
+    const existingTags = execSync(`git tag -l v${this.report.version}`, { encoding: 'utf8' }).trim()
+    if (existingTags) {
       this.log(`ℹ️  Tag v${this.report.version} ya existe - omitiendo creación`)
-    } catch (error) {
+    } else {
       // El tag no existe, crearlo
       execSync(`git tag -a v${this.report.version} -m "Release v${this.report.version}"`, { stdio: 'inherit' })
       this.log(`✅ Tag creado: v${this.report.version}`)
@@ -235,29 +245,19 @@ class ReleaseManager {
     this.log(`✅ Commit procesado: ${commitMessage}`)
   }
 
-  // 7. Push
+  // 7. Push - SIMPLIFICADO según instrucciones
   async push() {
     this.log('=== PASO 7: Push ===')
 
-    // Verificar si hay commits locales que no están en el remoto
-    const localCommits = execSync('git rev-list HEAD ^origin/master 2>/dev/null || git rev-list HEAD', {
-      encoding: 'utf8',
-    }).trim()
-
-    if (localCommits) {
-      // Hay commits locales, hacer push
-      execSync('git push origin master', { stdio: 'inherit' })
-      this.log('✅ Push de commits completado')
-    } else {
-      this.log('ℹ️  No hay commits nuevos para pushear')
-    }
-
-    // Push tags (solo si hay tags nuevos)
+    // Push commits y tags siguiendo las instrucciones: git push origin master && git push --tags
     try {
-      execSync('git push --tags', { stdio: 'pipe' })
+      execSync(`git push origin ${this.currentBranch}`, { stdio: 'inherit' })
+      this.log('✅ Push de commits completado')
+
+      execSync('git push --tags', { stdio: 'inherit' })
       this.log('✅ Push de tags completado')
     } catch (error) {
-      this.log('ℹ️  No hay tags nuevos para pushear o ya están en el remoto')
+      throw new Error(`Error en push: ${error.message}`)
     }
 
     // Obtener SHA del commit actual
@@ -272,28 +272,48 @@ class ReleaseManager {
       throw new Error('Variable de entorno NPM_TOKEN no configurada')
     }
 
-    execSync('npm publish --access public', { stdio: 'inherit' })
-    this.report.registryUrls.push('https://www.npmjs.com/package/create-python-modern')
-    this.log('✅ Publicación en npm completada')
+    try {
+      execSync('npm publish --access public', { stdio: 'inherit' })
+      const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+      this.report.registryUrls.push(`https://www.npmjs.com/package/${packageJson.name}`)
+      this.log('✅ Publicación en npm completada')
+    } catch (error) {
+      throw new Error(`Error publicando en npm: ${error.message}`)
+    }
   }
 
-  // 9. Publicación en GitHub Packages (opcional)
+  // 9. Publicación en GitHub Packages (opcional) - MEJORADO
   async publishToGitHub() {
     this.log('=== PASO 9: Publicación en GitHub Packages ===')
 
     const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'))
 
     if (packageJson.name.includes('/')) {
-      // Paquete con scope
+      // Paquete con scope - verificar configuración .npmrc
       if (fs.existsSync('.npmrc')) {
-        execSync('npm publish --registry=https://npm.pkg.github.com', { stdio: 'inherit' })
-        this.report.registryUrls.push('https://github.com/jhonma82/create-python-modern/packages')
-        this.log('✅ Publicación en GitHub Packages completada')
+        const npmrcContent = fs.readFileSync('.npmrc', 'utf8')
+        if (npmrcContent.includes('npm.pkg.github.com')) {
+          try {
+            execSync('npm publish --registry=https://npm.pkg.github.com', { stdio: 'inherit' })
+            this.report.registryUrls.push('https://github.com/jhonma82/create-python-modern/packages')
+            this.log('✅ Publicación en GitHub Packages completada')
+          } catch (error) {
+            this.warn(`Error publicando en GitHub Packages: ${error.message}`)
+            this.report.issues.push('Error en publicación de GitHub Packages')
+            this.report.solutions.push('Verificar configuración de autenticación de GitHub')
+          }
+        } else {
+          this.warn('Archivo .npmrc no configurado correctamente para GitHub Packages')
+          this.report.issues.push('.npmrc sin configuración de GitHub Packages')
+          this.report.solutions.push('Agregar configuración de registry en .npmrc')
+        }
       } else {
         this.warn('Archivo .npmrc no encontrado para GitHub Packages')
+        this.report.issues.push('Archivo .npmrc no encontrado')
+        this.report.solutions.push('Crear .npmrc con configuración de GitHub Packages')
       }
     } else {
-      this.warn('Paquete sin scope - omitiendo GitHub Packages')
+      this.warn('Paquete sin scope - omitiendo GitHub Packages según instrucciones')
     }
   }
 
@@ -303,15 +323,37 @@ class ReleaseManager {
 
     const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'))
 
-    // Verificar publicación en npm
-    const npmVersion = execSync(`npm view ${packageJson.name} version`, { encoding: 'utf8' }).trim()
+    // Verificar publicación en npm con reintentos
+    let npmVersion = null
+    let retries = 3
+
+    while (retries > 0 && !npmVersion) {
+      try {
+        npmVersion = execSync(`npm view ${packageJson.name} version`, { encoding: 'utf8' }).trim()
+        break
+      } catch (error) {
+        retries--
+        if (retries > 0) {
+          this.log(`⏳ Esperando propagación en npm... (${3 - retries}/3)`)
+          await new Promise(resolve => setTimeout(resolve, 5000)) // Esperar 5 segundos
+        } else {
+          throw new Error(`No se pudo verificar la publicación en npm: ${error.message}`)
+        }
+      }
+    }
+
     if (npmVersion !== this.report.version) {
       throw new Error(`Versión en npm (${npmVersion}) no coincide con versión local (${this.report.version})`)
     }
     this.log(`✅ Versión verificada en npm: ${npmVersion}`)
 
     // Obtener información del paquete
-    this.report.packageInfo = execSync(`npm view ${packageJson.name}`, { encoding: 'utf8' }).trim()
+    try {
+      this.report.packageInfo = execSync(`npm view ${packageJson.name}`, { encoding: 'utf8' }).trim()
+    } catch (error) {
+      this.warn(`No se pudo obtener información completa del paquete: ${error.message}`)
+      this.report.packageInfo = 'Información no disponible'
+    }
   }
 
   // 11. Generación de reporte
@@ -346,49 +388,32 @@ ${this.report.packageInfo || 'No disponible'}
     this.log('✅ Reporte generado: report.md')
   }
 
-  // Método principal
+  // Método principal - LIMPIADO (sin logs de debug)
   async run(releaseType = 'patch') {
-    console.log('🔍 DEBUG: Iniciando run() con releaseType:', releaseType)
     try {
-      console.log('🚀 DEBUG: Ejecutando preVerification()')
       await this.preVerification()
-
-      console.log('📦 DEBUG: Ejecutando dependenciesAndTests()')
       await this.dependenciesAndTests()
-
-      console.log('🔨 DEBUG: Ejecutando build()')
       await this.build()
-
-      console.log('🔢 DEBUG: Ejecutando versioning()')
       await this.versioning(releaseType)
-
-      console.log('📝 DEBUG: Ejecutando updateChangelog()')
       await this.updateChangelog()
-
-      console.log('💾 DEBUG: Ejecutando commitAndTag()')
       await this.commitAndTag()
-
-      console.log('⬆️  DEBUG: Ejecutando push()')
       await this.push()
-
-      console.log('📤 DEBUG: Ejecutando publishToNpm()')
       await this.publishToNpm()
-
-      console.log('📥 DEBUG: Ejecutando publishToGitHub()')
       await this.publishToGitHub()
-
-      console.log('✅ DEBUG: Ejecutando verification()')
       await this.verification()
-
-      console.log('📋 DEBUG: Ejecutando generateReport()')
       await this.generateReport()
 
       this.log('🎉 ¡Proceso de liberación completado exitosamente!')
       this.log(`Versión publicada: ${this.report.version}`)
       this.log(`Commit: ${this.report.commitSha}`)
+
+      // Mostrar URLs de registros
+      if (this.report.registryUrls.length > 0) {
+        this.log('📦 Paquete disponible en:')
+        this.report.registryUrls.forEach(url => this.log(`   - ${url}`))
+      }
     } catch (error) {
-      console.error('❌ DEBUG: Error en el proceso:', error.message)
-      console.error('❌ DEBUG: Stack trace:', error.stack)
+      this.error(`Error en el proceso: ${error.message}`)
       await this.generateReport()
       throw error
     }
