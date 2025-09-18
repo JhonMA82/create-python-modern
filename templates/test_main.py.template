@@ -1,0 +1,30 @@
+"""Tests for main module."""
+
+import pytest
+
+from __MODULE_NAME__.main import main
+
+
+class TestMain:
+    """Test suite for main module."""
+    
+    @pytest.mark.asyncio
+    async def test_main_returns_dict(self) -> None:
+        """Test that main function returns a dictionary."""
+        result = await main()
+        assert isinstance(result, dict)
+    
+    @pytest.mark.asyncio
+    async def test_main_required_keys(self) -> None:
+        """Test that main function returns required keys."""
+        result = await main()
+        required_keys = ["status", "message", "project"]
+        
+        for key in required_keys:
+            assert key in result
+    
+    @pytest.mark.asyncio
+    async def test_main_status_success(self) -> None:
+        """Test that main function returns success status."""
+        result = await main()
+        assert result["status"] == "success"

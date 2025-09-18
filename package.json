@@ -7,8 +7,18 @@
   "bin": {
     "create-python-modern": "bin/index.js"
   },
+  "files": [
+    "bin",
+    "templates",
+    "scripts"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "echo \"No build step required for this package\"",
+    "release": "node scripts/release.js",
+    "release:patch": "npm run release -- patch",
+    "release:minor": "npm run release -- minor",
+    "release:major": "npm run release -- major"
   },
   "keywords": [
     "python",
@@ -31,14 +41,17 @@
   "author": "Tu Nombre",
   "license": "MIT",
   "dependencies": {
-    "commander": "^11.0.0",
     "chalk": "^4.1.2",
-    "ora": "^5.4.1",
-    "inquirer": "^8.2.6"
+    "commander": "^11.0.0",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jhonma82/create-python-modern.git"
   },
-  "homepage": "https://github.com/jhonma82/create-python-modern#readme"
+  "homepage": "https://github.com/jhonma82/create-python-modern#readme",
+  "devDependencies": {
+    "dotenv": "^17.2.2"
+  }
 }

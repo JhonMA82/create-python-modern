@@ -7,6 +7,41 @@ import * as fs from 'fs'
 import inquirer from 'inquirer'
 import ora from 'ora'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const TEMPLATES_DIR = path.resolve(__dirname, '../templates')
+
+function ensureDirSync(dir) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+}
+
+function renderTemplate(content, vars = {}) {
+  let out = content
+  for (const [key, value] of Object.entries(vars)) {
+    const re = new RegExp(`__${key}__`, 'g')
+    out = out.replace(re, String(value))
+  }
+  return out
+}
+
+function readTemplate(relPath) {
+  const fullPath = path.join(TEMPLATES_DIR, relPath)
+  if (!fs.existsSync(fullPath)) {
+    throw new Error(`Template not found: ${relPath} (expected at ${fullPath})`)
+  }
+  return fs.readFileSync(fullPath, 'utf8')
+}
+
+function copyTemplate(relTemplatePath, destPath, vars = {}) {
+  const content = readTemplate(relTemplatePath)
+  const rendered = renderTemplate(content, vars)
+  ensureDirSync(path.dirname(destPath))
+  fs.writeFileSync(destPath, rendered)
+}
 
 program
   .name('create-python-modern')
@@ -183,81 +218,15 @@ async function createPythonProject(projectName) {
 }
 
 async function addModernConfig(projectName) {
-  // Read existing pyproject.toml from uv init
+  // Append modern config from template to uv-generated pyproject.toml
   let existingConfig = ''
   if (fs.existsSync('pyproject.toml')) {
-    existingConfig = fs.readFileSync('pyproject.toml', 'utf8')
+    existingConfig = fs.readFileSync('pyproject.toml', 'utf8').trim()
   }
 
-  // Simple approach: append new configuration after existing content
-  const newConfig = `
-
-[tool.ruff]
-line-length = 88
-target-version = "py311"
-src = ["src"]
-
-[tool.ruff.lint]
-select = ["E", "W", "F", "I", "N", "UP", "S", "B", "C4", "ICN", "PIE", "T20", "Q", "RET", "SIM", "ARG", "PTH", "ERA"]
-ignore = ["E501", "S101"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "ARG", "PLR2004"]
-
-[tool.mypy]
-python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
-no_implicit_optional = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-asyncio_mode = "auto"
-addopts = ["--strict-markers", "--strict-config", "--cov=src", "--cov-report=term-missing", "--cov-fail-under=80"]
-
-[tool.bandit]
-exclude_dirs = ["tests"]
-skips = ["B101"]
-
-[tool.coverage.run]
-source = ["src"]
-omit = ["tests/*"]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if self.debug:",
-    "if settings.DEBUG",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if 0:",
-    "if __name__ == .__main__.:"
-]
-
-[dependency-groups]
-dev = [
-    "bandit>=1.8.6",
-    "mypy>=1.18.1",
-    "pre-commit>=4.3.0",
-    "pytest>=8.4.2",
-    "pytest-asyncio>=1.2.0",
-    "pytest-cov>=7.0.0",
-    "ruff>=0.13.0",
-    "python-dotenv>=1.0.0",
-    "httpx>=0.27.0",
-    "factory-boy>=3.3.0",
-    "pytest-mock>=3.14.0",
-]`
-
-  // Combine existing and new config
-  const fullConfig = existingConfig.trim() + newConfig
+  const moduleName = projectName.replace(/-/g, '_')
+  const extraConfig = renderTemplate(readTemplate('pyproject.extra.toml'), { MODULE_NAME: moduleName }).trimStart()
+  const fullConfig = (existingConfig ? existingConfig + '\n' : '') + '\n' + extraConfig + '\n'
   fs.writeFileSync('pyproject.toml', fullConfig)
 }
 
@@ -566,46 +535,10 @@ async function createCodeFiles(projectName) {
   ensureDirSync(srcPath)
   ensureDirSync(testsPath)
 
-  // Crear main.py con dedent para evitar indentación extra
-  const mainPyContent = `"""Main module following Python modern standards."""
-
-from __future__ import annotations
-
-import asyncio
-from typing import Any
-
-
-async def main() -> dict[str, Any]:
-    \"""Main application entry point.
-    
-    Returns:
-        Dictionary with application status
-    \"""
-    return {
-        "status": "success", 
-        "message": "Application running",
-        "project": "${projectName}"
-    }
-
-
-if __name__ == "__main__":
-    result = asyncio.run(main())
-    print(result)
-`.replace(/^ {2}/gm, '')
-
-  fs.writeFileSync(path.join(srcPath, 'main.py'), mainPyContent)
-
-  // Crear py.typed
-  fs.writeFileSync(path.join(srcPath, 'py.typed'), '')
-
-  // Crear __init__.py con import de main
-  const initPyContent = `"""${projectName} - A modern Python project."""
-
-
-__all__ = ["main"]
-`.replace(/^ {2}/gm, '')
-
-  fs.writeFileSync(path.join(srcPath, '__init__.py'), initPyContent)
+  // Crear archivos desde templates
+  copyTemplate('main.py.template', path.join(srcPath, 'main.py'), { PROJECT_NAME: projectName })
+  copyTemplate('py.typed.template', path.join(srcPath, 'py.typed'))
+  copyTemplate('__init__.py.template', path.join(srcPath, '__init__.py'), { PROJECT_NAME: projectName })
 
   // Crear __init__.py vacío en tests si no existe
   const testsInitPath = path.join(testsPath, '__init__.py')
@@ -613,261 +546,9 @@ __all__ = ["main"]
     fs.writeFileSync(testsInitPath, '')
   }
 
-  // Crear test_main.py con dedent
-  const testPyContent = `"""Tests for main module."""
-
-import pytest
-
-from ${moduleName}.main import main
-
-
-class TestMain:
-    \"""Test suite for main module."""
-    
-    @pytest.mark.asyncio
-    async def test_main_returns_dict(self):
-        \"""Test that main function returns a dictionary.\"""
-        result = await main()
-        assert isinstance(result, dict)
-    
-    @pytest.mark.asyncio
-    async def test_main_required_keys(self):
-        \"""Test that main function returns required keys.\"""
-        result = await main()
-        required_keys = ["status", "message", "project"]
-        
-        for key in required_keys:
-            assert key in result
-    
-    @pytest.mark.asyncio
-    async def test_main_status_success(self):
-        \"""Test that main function returns success status.\"""
-        result = await main()
-        assert result["status"] == "success"
-`.replace(/^ {2}/gm, '')
-
-  fs.writeFileSync(path.join(testsPath, 'test_main.py'), testPyContent)
-
-  // Crear .claude.md (dedent applied)
-  const claudeMdContent = `# Claude Code - Python Standards Modernos
-
-## REGLAS OBLIGATORIAS PARA ESTE PROYECTO
-
-### ESTRUCTURA
-- ✅ Layout src/ (creado con uv init --package)
-- ✅ pyproject.toml OBLIGATORIO
-- ❗ Type hints OBLIGATORIOS en todas las funciones
-- ❗ Tests pytest OBLIGATORIOS (>80% cobertura)
-- ❗ Python >= 3.11
-
-### HERRAMIENTAS INSTALADAS
-- ✅ Ruff (linting + formatting)
-- ✅ MyPy (type checking)
-- ✅ pytest + pytest-cov + pytest-asyncio (testing)
-- ✅ pre-commit (hooks)
-- ✅ uv (package manager)
-- ✅ bandit (security scanning)
-
-### **FLUJO DE DESARROLLO RECOMENDADO**
-
-#### **1. ENFOQUE ESCALABLE PARA MÓDULOS**
-- **Recomendado**: Empezar con \`src/[proyecto]/main.py\` como punto de entrada principal
-- **Flexible**: Crear módulos adicionales cuando sea lógicamente apropiado
-- **Estructura sugerida**:
-  \`\`\`
-  src/mi_proyecto/
-  ├── __init__.py          # Exporta funciones principales
-  ├── main.py             # Entry point principal
-  ├── config.py           # Configuración de la aplicación
-  ├── utils/              # Funciones de utilidad reutilizables
-  ├── services/           # Lógica de negocio
-  └── models/             # Modelos de datos
-  \`\`\`
-
-#### **2. ESTRUCTURA DE main.py RECOMENDADA**
-\`\`\`python
-"""Main module for [FUNCIONALIDAD] - brief description."""
-
-from __future__ import annotations
-
-import asyncio
-from typing import Any
-# Imports de módulos internos según necesidad
-
-async def main() -> dict[str, Any]:
-    """Main application entry point.
-
-    Returns:
-        Dictionary with application results
-    """
-    # IMPLEMENTAR FUNCIONALIDAD AQUÍ
-    result = await tu_funcion_principal()
-    return {"status": "success", "result": result}
-
-if __name__ == "__main__":
-    result = asyncio.run(main())
-    print(result)
-\`\`\`
-
-#### **3. CUÁNDO CREAR MÓDULOS ADICIONALES**
-Crear nuevos módulos cuando:
-- La funcionalidad pertenece a un dominio lógico diferente
-- Necesitas reutilizar código en múltiples lugares
-- Tienes clases complejas que merecen su propio módulo
-- El código se vuelve difícil de mantener en un solo archivo
-
-**Orden de creación:**
-1. **Evaluar si el módulo es necesario** (evitar fragmentación prematura)
-2. **Crear el módulo apropiado** (ej: \`auth.py\`, \`database.py\`, \`utils/helpers.py\`)
-3. **Actualizar imports en archivos que lo necesiten**
-4. **Exportar funciones públicas en \`__init__.py\`**
-5. **Crear tests correspondientes** (\`tests/test_module.py\`)
-
-
-### CÓDIGO OBLIGATORIO
-1. **Type hints en TODAS las funciones públicas**
-2. **Async/await para operaciones I/O**
-3. **Pydantic para validación de datos**
-4. **Excepciones específicas (NO Exception genérico)**
-5. **Docstrings Google style OBLIGATORIOS**
-6. **Context managers para recursos**
-
-### TEMPLATE FUNCIÓN ESTÁNDAR
-\`\`\`python
-from __future__ import annotations
-from typing import Any
-
-async def process_data(
-    items: list[str],
-    limit: int = 100,
-    metadata: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    \"""Process data items asynchronously.
-    
-    Args:
-        items: List of items to process
-        limit: Maximum items to process
-        metadata: Optional metadata
-        
-    Returns:
-        Dictionary with processing results
-        
-    Raises:
-        ValueError: If limit is negative
-    \"""
-    if limit < 0:
-        raise ValueError("Limit must be non-negative")
-    
-    return {"processed": len(items[:limit])}
-\`\`\`
-
-### TESTING OBLIGATORIO
-- Test para cada función pública
-- Mocks para dependencias externas
-- Tests parametrizados cuando aplique
-- Tests async con pytest-asyncio
-
-### **REGLAS PARA MODIFICACIONES: ENFOQUE EQUILIBRADO**
-
-**IMPORTANTE: Este proyecto sigue un diseño escalable que empieza simple pero permite crecimiento organizado. Se prioriza la simplicidad inicial pero se permite una estructura modular cuando sea apropiado.**
-
-**PROTOCOLO PARA NUEVAS FUNCIONALIDADES:**
-1. ✅ **Evalúa el alcance** de la funcionalidad antes de decidir dónde implementarla
-2. ✅ **Funcionalidades pequeñas**: Agregar a \`main.py\` o módulo existente relacionado
-3. ✅ **Funcionalidades complejas o de dominio específico**: Crear módulo dedicado
-4. ✅ **Siempre actualizar** \`__init__.py\` para exportar funciones públicas
-5. ✅ **Crear tests apropiados** en el archivo de test correspondiente
-
-**EJEMPLO PRÁCTICO:**
-**Usuario pide:** "Crea una calculadora"
-
-**ENFOQUE RECOMENDADO:**
-- Si es solo operaciones básicas: agregar a \`main.py\`
-- Si es una calculadora completa con múltiples operaciones: crear \`calculator.py\`
-- Si las operaciones son reutilizables: crear \`utils/calculator.py\`
-- Actualizar \`__init__.py\` para exportar funciones principales
-- Crear \`tests/test_calculator.py\` o agregar a \`tests/test_main.py\` según corresponda
-
-**EJEMPLOS DE CUÁNDO CREAR MÓDULOS:**
-✅ **Crear módulos cuando:**
-- Configuración de aplicación: \`config.py\`
-- Autenticación: \`auth.py\` o \`services/auth.py\`
-- Base de datos: \`database.py\` o \`models/\`
-- Utilidades reutilizables: \`utils/helpers.py\`
-- API endpoints: \`api/endpoints.py\`
-
-❌ **Evitar crear módulos cuando:**
-- Son solo 2-3 funciones pequeñas
-- El código no se reutiliza en otros lugares
-- La funcionalidad es muy específica y no crecerá
-
-**VERIFICACIÓN ANTES DE APLICAR CUALQUIER CAMBIO:**
-- Lee este archivo \`.claude.md\` COMPLETO antes de proceder
-- Usa herramientas como \`read_file\` para ver el contenido actual de los archivos antes de editar
-- Después de cambios, valida: \`uv run ruff check . && uv run pytest --cov=src\`
-
-### SEGURIDAD CRÍTICA
-- Validar TODAS las entradas externas
-- NO hardcodear secretos (usar variables de entorno)
-- Logging estructurado con structlog
-- Bandit security scan OBLIGATORIO
-
-### VERIFICACIÓN OBLIGATORIA
-Ejecutar antes de cada commit:
-\`\`\`bash
-uv run ruff check .
-uv run ruff format .
-uv run mypy src/
-uv run pytest --cov=src --cov-fail-under=80
-\`\`\`
-
-### COMANDOS UV ÚTILES
-\`\`\`bash
-uv add package-name          # Agregar dependencia
-uv add --dev package-name    # Agregar dependencia de desarrollo
-uv run comando               # Ejecutar en el venv
-uv sync                      # Sincronizar dependencias
-uv lock                      # Actualizar lockfile
-\`\`\`
-
-
-**Claude: Sigue estas reglas como guía flexible. Prioriza la calidad del código y la escalabilidad del proyecto.**
-`.replace(/^ {2}/gm, '')
-
-  fs.writeFileSync('.claude.md', claudeMdContent)
-
-  // Crear .pre-commit-config.yaml con dedent
-  const preCommitConfigContent = `repos:
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
-    hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-      - id: check-yaml
-      - id: check-added-large-files
-      - id: check-merge-conflict
-  
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.5.0
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
-  
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.5.1
-    hooks:
-      - id: mypy
-        additional_dependencies: [types-requests]
-  
-  - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.5
-    hooks:
-      - id: bandit
-        args: ["-c", "pyproject.toml"]
-`.replace(/^ {2}/gm, '')
-
-  fs.writeFileSync('.pre-commit-config.yaml', preCommitConfigContent)
+  copyTemplate('test_main.py.template', path.join(testsPath, 'test_main.py'), { MODULE_NAME: moduleName })
+  copyTemplate('.claude.md.template', '.claude.md')
+  copyTemplate('.pre-commit-config.yaml.template', '.pre-commit-config.yaml')
 }
 
 program.parse()

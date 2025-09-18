@@ -1,0 +1,4 @@
+"""__PROJECT_NAME__ - A modern Python project."""
+
+
+__all__ = ["main"]
