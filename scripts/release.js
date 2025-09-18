@@ -396,7 +396,8 @@ ${this.report.packageInfo || 'No disponible'}
 }
 
 // Ejecutar si se llama directamente
-if (import.meta.url === `file://${process.argv[1]}`) {
+const currentFile = fileURLToPath(import.meta.url)
+if (path.resolve(currentFile) === path.resolve(process.argv[1])) {
   const releaseType = process.argv[2] || 'patch'
   const manager = new ReleaseManager()
   manager.run(releaseType).catch(error => {
